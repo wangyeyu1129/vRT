@@ -1,6 +1,6 @@
 # vRT black-box conformance profiles
 
-These are **partial** `handshake-interrupt-v1` (default), `tool-cancellation-v1`, `server-auth-v1`, `server-tool-stream-v1`, `server-heartbeat-v1` and `server-resume-replay-v1` profiles for [#17](https://github.com/austinchennn/vRT/issues/17), not certification of a complete vRT implementation. It tests real WebSocket traffic and controls public SDK APIs through independent JSONL driver processes. No model account, device, browser or API key is needed.
+These are **partial** `handshake-interrupt-v1` (default), `tool-cancellation-v1`, `server-auth-v1`, `server-tool-stream-v1`, `server-heartbeat-v1`, `server-resume-replay-v1` and `server-resume-rejection-v1` profiles for [#17](https://github.com/austinchennn/vRT/issues/17), not certification of a complete vRT implementation. It tests real WebSocket traffic and controls public SDK APIs through independent JSONL driver processes. No model account, device, browser or API key is needed.
 
 ## Run from a checkout
 
@@ -177,3 +177,22 @@ A prefix model marker and ordered pong establish the captured prefix; only the s
 Real-wire faults cover missing middle/last messages, changed content/seq, wrong resumedFrom, replacement session/model, duplicate context effects, missing/wrong old close, replayed transient ready, conflicting replay and missing observations. Correct independent servers and identical same-seq replay pass. Held close/context/finish/replay, startup/no response, exits and early second-peer closure are bounded with direct-child PID cleanup. Instrumentation and finite drain are trusted; this is not a process-tree sandbox or proof about arbitrary delayed work. Close code 4000 is checked on this direct loopback path alongside identity/model/effect/traffic evidence, not used as the sole evidence of recovery (§9.3).
 
 Full suite remains incomplete. ACK-deleted or evicted history, resume expiry, principal isolation, lost tool results, full epoch/tool/capability matrices, automatic client/bidirectional recovery, heartbeat, binary/audio and Python driver are not covered. This profile does not test ACK-deleted-history or heartbeat-specific recovery paths.
+
+
+## Server recovery rejection and ACK boundaries
+
+Select `server-resume-rejection-v1` explicitly; server mode plus a trusted independent driver is required:
+
+```sh
+node conformance/dist/node/cli.js server --profile server-resume-rejection-v1 --exec node --json -- conformance/dist/node/drivers/typescript-server.js
+```
+
+Four stable IDs under `server/resume-rejection/` cover `unknown`, `ahead`, `ack-history` and `ack-boundary`. Unknown/closed sessions fail before binding: RESUME_FAILED, recoverable:false, seq 0, then close 4404 (§5.4). An existing session binds before replay feasibility is checked: a ready may precede the non-recoverable sequenced error. The profile does not impose 4404 on that different failure path. A third connection confirms the failed session cannot be resumed; public model observations also confirm it closed without creating a replacement.
+
+**Retention prerequisite:** §4.2 permits retaining acknowledged history. This profile deliberately requires the driver's fixture policy `retention.acknowledged:"discard"` so it can exercise unavailable history deterministically. The official SDK already discards on ACK; instrumentation does not delete anything itself. A driver that retains ACKed messages or cannot provide this policy is incomplete for this profile, not declared wire-incompatible. Cursor below the discarded boundary fails; cursor equal to it replays the full retained suffix and a fresh marker with unchanged numbering. This is not a universal assertion that sending ACK makes every implementation's old cursor fail.
+
+The ACK JSONL receipt is issued only after the public edge delivers the actual wire frame to Connection.receive and its ACK state application completes (synchronous in the official SDK). It records connection/upTo, not private cache contents. History capture, receipt confirmation, public close delivery, retained replay/new-model marker, complete wire close and bounded final effects form the scenario barriers. All extra peers are disposed even on failure. A finite trusted inert model is not a proof about arbitrary future asynchronous work.
+
+Independent wire fixtures test silently creating unknown sessions, accepting ahead cursors, returning partial history, rejecting the exact boundary, retained sessions after failure, wrong error numbering/recoverability/close, extra business after failure, and missing/changed/conflicting replay. Identical same-seq replay passes. Bound-history close code is not fixed by the profile. No production SDK/schema/dependency changes are included.
+
+Missing required inventory/instrumentation is incomplete and exits nonzero. `fullSuite` stays incomplete. This adds no client auto-resume, window expiry, principal isolation, capacity eviction, lost-tool-result recovery or full bidirectional certification. It reuses the normal recovery infrastructure from upstream PR #46.
